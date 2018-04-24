@@ -2,7 +2,7 @@ const term = require("terminal-kit").terminal;
 const spChars = require("terminal-kit").spChars;
 const ScreenBuffer = require("terminal-kit").ScreenBuffer;
 const WebSocket = require("ws");
-const ws = new WebSocket(process.argv[0] ? `ws://${process.argv[0]}` : "ws://localhost:8080");
+const ws = new WebSocket("ws://localhost:8080");
 const cursorBlock = spChars.fullBlock;
 
 var screen = ScreenBuffer.create({
@@ -16,6 +16,7 @@ var screen = ScreenBuffer.create({
 process.exit();
  */
 
+let backSpace = false;
 ws.on("open", function open() {
   ws.send(
     JSON.stringify({
@@ -26,19 +27,36 @@ ws.on("open", function open() {
   term.on("key", function(name, matches, data) {
     if (name === "CTRL_C") {
       terminate();
+      return;
     }
 
-    ws.send(
-      JSON.stringify({
-        type: "command",
-        data: {
-          curx: curx,
-          cury: cury,
-					str: charBelowCursor.char,
-					color: charBelowCursor.color
-        }
-      })
-    );
+    if (!backSpace)
+      //Restaura o caractere que está em cima do cursor
+      ws.send(
+        JSON.stringify({
+          type: "command",
+          data: {
+            curx: curx,
+            cury: cury,
+            str: charBelowCursor.char,
+            color: charBelowCursor.color
+          }
+        })
+      );
+    else {
+      //Restaura o caractere em branco
+      ws.send(
+        JSON.stringify({
+          type: "command",
+          data: {
+            curx: curx,
+            cury: cury,
+            str: " "
+          }
+        })
+      );
+      backSpace = false;
+    }
 
     let isMoving = false;
     if (name === "UP") {
@@ -59,9 +77,22 @@ ws.on("open", function open() {
     }
     if (name === "BACKSPACE") {
       isMoving = true;
-      curx--;
+      //curx++;
 
-      //putCursor(" ");
+      ws.send(
+        JSON.stringify({
+          type: "command",
+          data: {
+            curx: --curx,
+            cury: cury,
+            str: " "
+          }
+        })
+      );
+
+      backSpace = true;
+
+      charBelowCursor.char = " ";
     }
 
     if (!isMoving) {
@@ -78,12 +109,11 @@ ws.on("open", function open() {
       curx++;
     }
 
+    //Pega o caracter que o cursor está em cima para restaurar ele depois que ele sair de cima
     let auxCharBelowCursor = screen.get({ x: curx, y: cury });
-
     if (auxCharBelowCursor.char != cursorBlock)
       charBelowCursor = auxCharBelowCursor;
 
-    //Unico putCursor vazio, se não fode manter o caracter de cima
     ws.send(
       JSON.stringify({
         type: "command",
@@ -117,6 +147,31 @@ ws.on("message", function incoming(mess) {
     );
     screen.draw();
   }
+
+  if (message.type == "initialData") {
+    for (let i = 0; i < message.data.length; i++) {
+      let { x, y, obj } = message.data[i];
+      let { char, attr } = obj;
+
+      if (attr.color != 0) console.log(attr.color);
+
+      screen.put(
+        {
+          x,
+          y,
+          dx: 0,
+          attr: {
+            // Both foreground and background must have the same color
+            bgColor: 0,
+            color: attr.color
+          }
+        },
+        char
+      );
+    }
+
+    screen.draw();
+  }
 });
 
 screen.fill({
@@ -131,9 +186,19 @@ term.grabInput(true);
 
 function terminate() {
   term.grabInput(false);
+  ws.send(
+    JSON.stringify({
+      type: "command",
+      data: {
+        curx: curx,
+        cury: cury,
+        str: " "
+      }
+    })
+  );
   setTimeout(function() {
     process.exit();
-  }, 100);
+  }, 500);
 }
 
 let curx = 1,

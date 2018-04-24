@@ -13,14 +13,27 @@ var screen = ScreenBuffer.create({
   noFill: false
 });
 
+for (let i = 0; i < 100; i++) term(cursorBlock).color(i);
+
 let numColor = 1;
 wss.on("connection", function connection(ws) {
   let myColor = numColor;
   numColor++;
 
+  if (numColor > 4) numColor = 0;
+
   ws.on("message", function incoming(mess) {
     let message = JSON.parse(mess);
     if (message.type == "initialData") {
+      let arrayDump = [];
+      for (let i = 0; i < screen.height; i++)
+        for (let j = 0; j < screen.width; j++)
+          arrayDump.push({
+            x: j,
+            y: i,
+            obj: screen.get({ x: j, y: i })
+          });
+      ws.send(JSON.stringify({ type: "initialData", data: arrayDump }));
     }
 
     if (message.type == "command") {
@@ -29,6 +42,21 @@ wss.on("connection", function connection(ws) {
           type: "write",
           data: { color: myColor, ...message.data }
         })
+      );
+
+      let { curx, cury, color, str } = message.data;
+      screen.put(
+        {
+          x: curx,
+          y: cury,
+          dx: 0,
+          attr: {
+            // Both foreground and background must have the same color
+            bgColor: 0,
+            color: myColor
+          }
+        },
+        str
       );
     }
   });
